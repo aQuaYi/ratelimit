@@ -189,6 +189,8 @@ func NewBucketWithQuantumAndClock(fillInterval time.Duration, capacity, quantum 
 
 // Wait takes count tokens from the bucket, waiting until they are
 // available.
+// Wait 会从 bucket 中拿走 count 数量的 token，
+// 如果 bucket 中 token 的数量少于 count，会等待相应的时间。
 func (tb *Bucket) Wait(count int64) {
 	if d := tb.Take(count); d > 0 {
 		tb.clock.Sleep(d)
@@ -200,6 +202,8 @@ func (tb *Bucket) Wait(count int64) {
 // for no greater than maxWait. It reports whether
 // any tokens have been removed from the bucket
 // If no tokens have been removed, it returns immediately.
+// WaitMaxDuration 与 wait 方法类似，只是增加了一个 maxWait 参数。
+// 其含义时，为了获得 count 数量的 token，最多只能等 maxWait 这么多时间。
 func (tb *Bucket) WaitMaxDuration(count int64, maxWait time.Duration) bool {
 	d, ok := tb.TakeMaxDuration(count, maxWait)
 	if d > 0 {
@@ -208,6 +212,7 @@ func (tb *Bucket) WaitMaxDuration(count int64, maxWait time.Duration) bool {
 	return ok
 }
 
+// 无穷大的时间间隔
 const infinityDuration time.Duration = 0x7fffffffffffffff
 
 // Take takes count tokens from the bucket without blocking. It returns
