@@ -18,64 +18,85 @@ import (
 // only when tokens are removed from the bucket, and that work completes
 // in short, bounded-constant time (Bucket.Wait benchmarks at 175ns on
 // my laptop).
+// 算法的这种实现方式，只有当 tokens 从桶中移除的时候，才会发生计算；
+// 并且是在短而恒定的时间内完成计算。
+// （Bucket.Wait 在我电脑的上的基准测试结果是 175 纳秒）
 //
 // Time is measured in equal measured ticks, a given interval
 // (fillInterval) apart. On each tick a number of tokens (quantum) are
 // added to the bucket.
+// 时间以相同的给定的时间间隔来统计，使用 fillInterval 表示。
+// 在每个时间间隔中，quantum 个 token 会被放入桶中。
 //
 // When any of the methods are called the bucket updates the number of
 // tokens that are in the bucket, and it records the current tick
 // number too. Note that it doesn't record the current time - by
 // keeping things in units of whole ticks, it's easy to dish out tokens
 // at exactly the right intervals as measured from the start time.
+// 当桶的方法被调用时，它会更新 token 的数量，并记录当前时间间隔的数量。
+// 注意，桶并不会记录当前的时间。通过把全部的时间间隔做为整体考虑，它能够很容易地在正确的时间间隔上，移除 token。
 //
 // This allows us to calculate the number of tokens that will be
 // available at some time in the future with a few simple arithmetic
 // operations.
+// 通过简单的算术计算，我们就可以计算出未来某个时间点上可以使用的 token 的数量。
 //
 // The main reason for being able to transfer multiple tokens on each tick
 // is so that we can represent rates greater than 1e9 (the resolution of the Go
 // time package) tokens per second, but it's also useful because
 // it means we can easily represent situations like "a person gets
 // five tokens an hour, replenished on the hour".
+// 把 token 转换成每个时间间隔上的表示的主要原因是，我们可以表达比 1e9 每秒还要大的速率。这样的方式，还有利于表示，“一个人每小时可以获得 5 个 token，每小时补充一次”。
 
 // Bucket represents a token bucket that fills at a predetermined rate.
 // Methods on Bucket may be called concurrently.
+// Bucket 代表了一个令牌桶，其按照预先定义的速率增加令牌。
+// Bucket 的方法，也许可以并发调用。
 type Bucket struct {
 	clock Clock
 
 	// startTime holds the moment when the bucket was
 	// first created and ticks began.
+	// starTime 保存了 Bucket 被创建的时间
+	// 也是时间间隔的起点
 	startTime time.Time
 
 	// capacity holds the overall capacity of the bucket.
+	// Bucket 的容量
 	capacity int64
 
 	// quantum holds how many tokens are added on
 	// each tick.
+	// quantum 记录了每个时间间隔添加 token 的数量
 	quantum int64
 
 	// fillInterval holds the interval between each tick.
+	// fillInterval 是时间间隔的宽度
 	fillInterval time.Duration
 
 	// mu guards the fields below it.
+	// mu 保护以下属性
 	mu sync.Mutex
+
+	// latestTick holds the latest tick for which
+	// we know the number of tokens in the bucket.
+	// latestTick 保存了上一次计算 token 的时间间隔点。
+	latestTick int64
 
 	// availableTokens holds the number of available
 	// tokens as of the associated latestTick.
 	// It will be negative when there are consumers
 	// waiting for tokens.
+	// availableTokens 保存了 latestTick 上可以使用的 token 的数量。
+	// 当消费者在等待 token 的时候， availableTokens 将会时负数。
 	availableTokens int64
-
-	// latestTick holds the latest tick for which
-	// we know the number of tokens in the bucket.
-	latestTick int64
 }
 
 // NewBucket returns a new token bucket that fills at the
 // rate of one token every fillInterval, up to the given
 // maximum capacity. Both arguments must be
 // positive. The bucket is initially full.
+// bucket 在一开始的时候，是满的。
 func NewBucket(fillInterval time.Duration, capacity int64) *Bucket {
 	return NewBucketWithClock(fillInterval, capacity, nil)
 }
@@ -88,6 +109,8 @@ func NewBucketWithClock(fillInterval time.Duration, capacity int64, clock Clock)
 
 // rateMargin specifes the allowed variance of actual
 // rate from specified rate. 1% seems reasonable.
+// 把 rate 转换成 fillInterval 和 quantum 的时候，会出现误差。
+// 误差小于 rateMargin，则可以接受。
 const rateMargin = 0.01
 
 // NewBucketWithRate returns a token bucket that fills the bucket
@@ -123,11 +146,11 @@ func NewBucketWithRateAndClock(rate float64, capacity int64, clock Clock) *Bucke
 // We grow the quantum exponentially, but slowly, so we
 // get a good fit in the lower numbers.
 func nextQuantum(q int64) int64 {
-	q1 := q * 11 / 10
-	if q1 == q {
-		q1++
+	next := q * 11 / 10
+	if next == q {
+		next++
 	}
-	return q1
+	return next
 }
 
 // NewBucketWithQuantum is similar to NewBucket, but allows
